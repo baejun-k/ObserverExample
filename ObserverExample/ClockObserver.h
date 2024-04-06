@@ -18,7 +18,7 @@ public:
 		: IObserver<chr::duration<double>>()
 		, m_name(name)
 	{}
-	~ClockObserver()
+	virtual ~ClockObserver()
 	{}
 
 	virtual void OnNext(const chr::duration<double>& value) override

@@ -29,7 +29,7 @@ public:
 		, m_startTime(chr::system_clock::now())
 		, m_sec(chr::duration<double>(0))
 	{}
-	~Clock()
+	virtual ~Clock()
 	{}
 
 	void Updated()

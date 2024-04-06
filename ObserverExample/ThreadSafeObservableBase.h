@@ -15,32 +15,6 @@ class ThreadSafeObservableBase : public IObservable<Ty, std::shared_ptr<IObserve
 private:
 	using ObserverPtrList = std::list<std::weak_ptr<IObserver<Ty>>>;
 
-private:
-	class UnSubscribe
-	{
-	private:
-		std::mutex& m_mutex;
-		ObserverPtrList& m_observers;
-		std::shared_ptr<IObserver<Ty>> m_observer;
-
-	public:
-		UnSubscribe(std::mutex& mutex, ObserverPtrList& observers, std::shared_ptr<IObserver<Ty>>& observer)
-			: m_mutex(mutex)
-			, m_observers(observers)
-			, m_observer(observer)
-		{}
-		~UnSubscribe()
-		{}
-
-		void operator()()
-		{
-			std::lock_guard<std::mutex> _lock(m_mutex);
-			m_observers.remove_if([&](std::weak_ptr<IObserver<Ty>> _ptr) {
-				return (m_observer == _ptr.lock());
-			});
-		}
-	};
-
 protected:
 	ThreadSafeObservableBase()
 		: IObservable<Ty, std::shared_ptr<IObserver<Ty>>>()
@@ -50,6 +24,12 @@ protected:
 public:
 	virtual ~ThreadSafeObservableBase() {}
 
+	/// <summary>
+	/// observer 객체를 observable에 구독
+	/// 구독 해제하는 함수를 반환
+	/// </summary>
+	/// <param name="observer">observable을 구독할 객체</param>
+	/// <returns>구독 해제하는 함수</returns>
 	virtual std::function<void()> Subscribe(std::shared_ptr<IObserver<Ty>> observer) override
 	{
 		using ObserverPtrListIter = typename ObserverPtrList::iterator;
@@ -65,9 +45,13 @@ public:
 			m_observers.push_back(weakObserver);
 		}
 
-		return UnSubscribe(m_mutex, m_observers, observer);
+		return std::bind(&ThreadSafeObservableBase::UnSubscribe, this, observer);
 	}
 
+	/// <summary>
+	/// 값을 observer에 전달
+	/// </summary>
+	/// <param name="val">전달 할 값</param>
 	virtual void Notify(const Ty& val) const
 	{
 		ObserverPtrList copyObservers;
@@ -85,6 +69,10 @@ public:
 		}
 	}
 
+	/// <summary>
+	/// error가 발생했음을 oserver에 전달
+	/// </summary>
+	/// <param name="pError">에러 값</param>
 	virtual void Error(std::exception const* pError) const
 	{
 		ObserverPtrList copyObservers;
@@ -102,6 +90,9 @@ public:
 		}
 	}
 
+	/// <summary>
+	/// overvable이 완료되었음을 알림
+	/// </summary>
 	virtual void Completed() const
 	{
 		ObserverPtrList copyObservers;
@@ -117,6 +108,18 @@ public:
 				pObserver->OnCompleted();
 			}
 		}
+	}
+
+	/// <summary>
+	/// observer가 구독 해제하는 함수
+	/// </summary>
+	/// <param name="observer">구독 중인 observer</param>
+	void UnSubscribe(std::shared_ptr<IObserver<Ty>>& observer)
+	{
+		std::lock_guard<std::mutex> _lock(m_mutex);
+		m_observers.remove_if([&](std::weak_ptr<IObserver<Ty>> _ptr) {
+			return (observer == _ptr.lock());
+		});
 	}
 
 private:
