@@ -1,205 +1,47 @@
 #pragma warning(disable : 4996)
-#include "interface/IObserve.h"
-
-#include <chrono>
-#include <vector>
-#include <stdlib.h>
-
-namespace chr = std::chrono;
-
-class Clock : public IObservable<chr::duration<double>>
-{
-public:
-	struct Observer 	
-	{
-		IObserver<chr::duration<double>> *pObserver;
-		std::shared_ptr<IUnsubscriber>    pUnsubscribeHandle;
-
-		Observer(IObserver<chr::duration<double>> * const observer, 
-				 std::shared_ptr<IUnsubscriber> unsubscribeHlr) :
-			pObserver(observer), pUnsubscribeHandle(unsubscribeHlr)
-		{}
-	};
-
-	class Unsubscriber : public IUnsubscriber 	{
-	private:
-		std::vector<Observer> &_observers;
-		IObserver<chr::duration<double>> *_pObserver;
-
-	public:
-		Unsubscriber(std::vector<Observer> &observers,
-					 IObserver<chr::duration<double>> *const observer) :
-			_observers(observers), _pObserver(observer)
-		{}
-
-		// IUnsubscriber을(를) 통해 상속됨
-		virtual void Unsubscribe() override
-		{
-			using itorator = std::vector<Observer>::const_iterator;
-			itorator beg = _observers.begin();
-
-			size_t memId = (size_t)_pObserver;
-			for ( int i = _observers.size() - 1; i >= 0; --i )
-			{
-				itorator it = ( beg + i );
-				if ( memId == (size_t)it->pObserver )
-				{
-					_observers.erase(it);
-					return;
-				}
-			}
-		}
-	};
-
-private:
-	chr::system_clock::time_point _startTime;
-	chr::duration<double> _sec;
-
-	std::vector<Observer> _observers;
-
-public:
-	Clock()
-	{
-		_startTime = chr::system_clock::now();
-		_sec = chr::duration<double>(0);
-	}
-	~Clock()
-	{
-		Completed();
-	}
-
-	// IObservable을(를) 통해 상속됨
-	virtual std::shared_ptr<IUnsubscriber> Subscribe(IObserver<chr::duration<double>> * const observer) override
-	{
-		using itorator = std::vector<Observer>::const_iterator;
-		itorator beg = _observers.begin();
-
-		size_t memId = (size_t)observer;
-		for ( int i = _observers.size() - 1; i >= 0; --i )
-		{
-			itorator it = ( beg + i );
-			if ( memId == (size_t)it->pObserver )
-			{
-				return it->pUnsubscribeHandle;
-			}
-		}
-
-		std::shared_ptr<IUnsubscriber> unsubscribeHandle(new Unsubscriber(_observers, observer));
-		_observers.push_back(Observer(observer, unsubscribeHandle));
-
-		return unsubscribeHandle;
-	}
-
-	void Updated()
-	{
-		printf("Updated Start======================\n");
-		_sec = chr::system_clock::now() - _startTime;
-
-		using itorator = std::vector<Observer>::const_iterator;
-		itorator beg = _observers.begin();
-
-		for ( int i = _observers.size() - 1; i >= 0; --i )
-		{
-			itorator it = ( beg + i );
-			it->pObserver->OnNext(_sec);
-		}
-
-		printf("Updated End========================\n\n");
-	}
-
-	void Completed()
-	{
-		using itorator = std::vector<Observer>::const_iterator;
-		itorator beg = _observers.begin();
-
-		for ( int i = _observers.size() - 1; i >= 0; --i )
-		{
-			itorator it = ( beg + i );
-			it->pObserver->OnCompleted();
-		}
-	}
-
-	double GetDuration()
-	{
-		return _sec.count();
-	}
-};
-
-class DurationChecker : public IObserver<chr::duration<double>>
-{
-private:
-	std::shared_ptr<IUnsubscriber> _unsubscribeHandle;
-
-public:
-	DurationChecker() :
-		_unsubscribeHandle(nullptr)
-	{}
 
 
-	// IObserver을(를) 통해 상속됨
-	virtual void Subscribe(IObservable<chr::duration<double>> * const provider) override
-	{
-		_unsubscribeHandle = provider->Subscribe(this);
-	}
+#include "Clock.h"
+#include "ClockObserver.h"
+#include <memory>
 
-	virtual void Unsubscribe() override
-	{
-		if ( _unsubscribeHandle )
-		{
-			_unsubscribeHandle->Unsubscribe();
-			_unsubscribeHandle.reset();
-		}
-		_unsubscribeHandle = nullptr;
-	}
-
-	virtual void OnCompleted() override
-	{
-		Unsubscribe();
-	}
-
-	virtual void OnError(std::exception *error) override
-	{
-		fprintf(stderr, "%s\n", error->what());
-	}
-
-	virtual void OnNext(const chr::duration<double> &value) override
-	{
-		fprintf(stdout, "%lf (sec)\n", value.count());
-	}
-};
-
-Clock g_clock;
 
 int main()
 {
-	DurationChecker *pCheker = new DurationChecker();
-	pCheker->Subscribe(&g_clock);
+	Clock observableClock;
+	std::shared_ptr<ClockObserver> clockObserver0 = std::make_shared<ClockObserver>("0");
+	std::shared_ptr<ClockObserver> clockObserver1 = std::make_shared<ClockObserver>("1");
+	std::shared_ptr<ClockObserver> clockObserver2 = std::make_shared<ClockObserver>("2");
 
-	while ( g_clock.GetDuration() < 2.0 )
-	{
-		g_clock.Updated();
-		_sleep(400);
-	}
-	
-	pCheker->Unsubscribe();
+#if ENABLE_THREAD_SAFE
+	std::function<void()> unsubscriber0 = observableClock.Subscribe(clockObserver0);
+#else
+	std::function<void()> unsubscriber0 = observableClock.Subscribe(clockObserver0.get());
+#endif
+	observableClock.Updated();
 
-	while ( g_clock.GetDuration() < 4.0 )
-	{
-		g_clock.Updated();
-		_sleep(400);
-	}
+#if ENABLE_THREAD_SAFE
+	std::function<void()> unsubscriber1 = observableClock.Subscribe(clockObserver1);
+#else
+	std::function<void()> unsubscriber1 = observableClock.Subscribe(clockObserver1.get());
+#endif
+	observableClock.Updated();
 
-	pCheker->Subscribe(&g_clock);
+#if ENABLE_THREAD_SAFE
+	std::function<void()> unsubscriber2 = observableClock.Subscribe(clockObserver2);
+#else
+	std::function<void()> unsubscriber2 = observableClock.Subscribe(clockObserver2.get());
+#endif
+	observableClock.Updated();
 
-	while ( g_clock.GetDuration() < 6.0 )
-	{
-		g_clock.Updated();
-		_sleep(400);
-	}
+	unsubscriber0();
+	observableClock.Updated();
 
-	g_clock.Completed();
+	unsubscriber2();
+	observableClock.Updated();
 
-	g_clock.Updated();
+	observableClock.Completed();
+
 
 	return 0;
 }
